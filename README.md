@@ -1,1 +1,1 @@
-Semkin Kirill, scientific investigations
+Implementations of 1 dimensional SSA method and multidimensional SSA based on tensor decomposition. Tests are provided for each method.
