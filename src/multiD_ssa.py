@@ -1,149 +1,69 @@
 import tensorly as tl
 import numpy as np
-
-class Traj_Tensor_Decomp:
-    """class which only manipulate with given tensor regarding it as trajectory 3d-tensor: making tensor
-    decomposition, grouping and hankelizing. Finally a list of decomposed components of initial tensor is an output
-    """
-    def __init__(self, tr_tensor: tl.tensor):
-        self.tr_t = tr_tensor
+from .basic_ssa import Basic_SSA
 
 
-    def _CPD_decomp(self, rank):
-        """method decompose traj. tensor and save weights and factors of decomposition
-
-        :param _type_ rank: rank to which make CPD
-        """
-        # make CPD
-        weights_temp, factors = tl.decomposition.parafac(self.tr_t, rank, normalize_factors=True)
-        # getting sorted order of weights values
-        temp = [(el, ind) for ind, el in enumerate(weights_temp)]
-        temp.sort(key=lambda x: x[0], reverse=True)
-        # var containg indexes of weights sorted descently
-        ordered_ind = [el[1] for el in temp]
-
-        # saving variables
-        self._weights = weights_temp
-        self._weights_order = ordered_ind
-
-        self.factors = []
-        for r in range(rank):
-            # constructing a factor as an outer product of 3 vectors
-            f1 = factors[0][:, r]
-            f2 = factors[1][:, r]
-            f3 = factors[2][:, r]
-            cur_factor = tl.tenalg.outer([f1, f2])
-            cur_factor = tl.tenalg.outer([cur_factor, f3])
-            self.factors.append(weights_temp[r] * cur_factor)
-
-
-    def _grouping_components(self, ind_groups: list):
-        """method to group chosen factors into chosen groupes (sum all factors within each group)
-
-        :param tuple ind_groups: list of tuples which form each group, indecies IN OREDERED list of weights of factors
-        """
-        new_factors = []
-        for group in ind_groups:
-            first_index = group[0]
-            new_factor = self.factors[self._weights_order[first_index]]
-            for ind in group[1:]:
-                new_factor += self.factors[self._weights_order[ind]]
-            new_factors.append(new_factor)
-
-        self.factors = new_factors
-
-
-    def _hankelize_factors(self):
-        """method hankelizing factors. Considers that the trajectory matrices are piled among the 3rd dimension
-        """
-        for factor in self.factors:
-            for k in range(factor.shape[2]):
-                temp = factor[:, :, k]
-                self._hankelize(factor[:, :, k])
-                pass
-
-    
-    @staticmethod
-    def _hankelize(ar: np.ndarray):
-        """method to hankelize single matrix
-
-        :param np.ndarray ar: matrix to hankelize
-        """
-        # above the main antidiagonal and on it
-        for i in range(ar.shape[0]):
-            cur_sum = 0
-            for j in range(i + 1):
-                cur_sum += ar[i - j][j]
-            avg = cur_sum / (i + 1)
-
-            for j in range(i + 1):
-                ar[i - j][j] = avg
-
-        # below the main antidiagonal
-        for i in range(1, ar.shape[1]):
-            cur_sum = 0
-            j = 0
-            while i + j != ar.shape[1] and ar.shape[0] - j != 0:
-                cur_sum += ar[(ar.shape[0] - 1) - j][i + j]
-                j += 1
-            avg = cur_sum / j
-
-            j = 0
-            while i + j != ar.shape[1] and ar.shape[0] - j != 0:
-                ar[(ar.shape[0] - 1) - j][i + j] = avg
-                j += 1
-
-
-class multiD_SSA_decomp:
+class multiD_SSA_decomp(Basic_SSA):
     """class for executing SSA with many 1d signals using tensor decomposition
     """
-    def __init__(self, signals: list, L: int):
+    def __init__(self, signals: list, L: int, r: int):
+        """
+
+        :param list signals: list of signals
+        :param int L: window size   
+        :param int r: rank of CPD decomposition, can be tuned for better results if needed
+        """
+        super().__init__(L)
         self.time_series = signals
-        self.window_size = L
-        # container for decomposed signals
-        self.component_signals = []
+        self.CPD_rank = r
 
 
-    def _build_traj_tensor(self):
-        # number of windowsize samples
-        K = len(self.time_series[0]) - self.window_size + 1
-        # initializing trajectory tensor
-        self._traj_tensor = tl.zeros(shape=(self.window_size, K, len(self.time_series)))
+    def decompose(self):
+        # construct traj. matrix
+        traj_matr = self._construct_traj_tensor()
 
-        # making trajectory matricies
-        for j in range(len(self.time_series)):
-            cur_traj_matrix = np.empty((self.window_size, K), float)
-            for i in range(K):
-              cur_traj_matrix.transpose()[i] = self.time_series[j][i:i + self.window_size]
-            
-            # piling created matricies
-            self._traj_tensor[:, :, j] = cur_traj_matrix
+        # perform CPD and safe factors
+        self.factors = tl.decomposition.parafac(traj_matr, rank=self.CPD_rank)[1]
 
 
     def extract_signals(self):
-        """method uses Traj_Tensor_Decomp and extract time series from it. Components of each signal are contained as matrices 
-        (number of factors, window_size) 
+        """ method stacks each multidimentional signal-component 
+            of size (num_of_time_series, time_series_len) into "component_signals"
         """
-        # creating decompositor
-        tensor_decompositor = Traj_Tensor_Decomp(self._traj_tensor)
-        #TODO: method-button to make the whole decomposition 
-        # for each given signal saves its components-series into matrix (number_of_components, window_size)
-        for i in range(len(self.time_series)):
-            cur_signal_decomp = []
-            for factor in tensor_decompositor.factors:
-                signal_component = self._extract_ts(factor[:,:,i])
-                cur_signal_decomp.append(signal_component)
-            self.component_signals.append(cur_signal_decomp)
+        # go through each group and build component of multidim signal
+        for group in self.grouping:
+            K = len(self.time_series[0]) - self.window_size + 1
+            # traj. tensor of component-signal
+            cur_traj_tens = tl.zeros(shape=(self.window_size, K, len(self.time_series)))
+
+            for ind in group:
+                # constructing component tensor
+                temp = tl.tenalg.outer([self.factors[0][0:, ind], self.factors[1][0:, ind]])
+                temp = tl.tenalg.outer([temp, self.factors[2][0:, ind]])
+                # adding
+                cur_traj_tens += temp
+
+            # hankalizing each slice through 3rd dim
+            for i in range(cur_traj_tens.shape[2]):
+                self._hankelize(cur_traj_tens[0:, 0:, i])
+
+            # extracting multiD signal
+            cur_component = []
+            for i in range(cur_traj_tens.shape[2]):
+                cur_time_ser = self._extract_ts(cur_traj_tens[0:, 0:, i])
+                cur_component.append(cur_time_ser)
+
+            self.component_signals.append(cur_component)
 
 
-    
-    @staticmethod
-    def _extract_ts(ar: np.ndarray):
-        """method extract time series out of trajectory matrix
+    def _construct_traj_tensor(self):
+        # initializing traj. tensor
+        K = len(self.time_series[0]) - self.window_size + 1
+        traj_tens = tl.zeros(shape=(self.window_size, K, len(self.time_series)))
 
-        :param np.ndarray ar: trajectory_matrix
-        :return _type_: 1d time series
-        """
-        first_part = ar.transpose()[0][:-1]
-        second_part = ar[-1]
-        return np.hstack((first_part, second_part))
+        # filling it with traj. matrices
+        for i, t_s in enumerate(self.time_series):
+            cur_traj_matrix = self._build_traj_matrix(t_s)
+            traj_tens[0:, 0:, i] = cur_traj_matrix
+
+        return traj_tens

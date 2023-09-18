@@ -3,88 +3,71 @@ import pytest
 import numpy as np
 import tensorly as tl
 from matplotlib import pyplot as plt
+import scipy.linalg  as linalg
 
 from src.multiD_ssa import multiD_SSA_decomp
-from src.multiD_ssa import Traj_Tensor_Decomp
-
-def test_building_traj_tensor():
-    """teseting proper work of tensorly and method to build trajectory tensor
-    """
-    # create 2 signals
-    x = np.linspace(0, 4 * np.pi, 100)
-    sig_1 = x + np.sin(x)
-
-    y = np.linspace(0, 4 * np.pi, 100)
-    sig_2 = np.exp(y) + np.cos(y)
-
-    # use "multiD_SSA_decom"
-    L = 50
-    md_ssa = multiD_SSA_decomp([sig_1, sig_2], L)
-    # build traj. tensora
-    md_ssa._build_traj_tensor()
-    first_matr = md_ssa._traj_tensor[:, :, 0]
-    second_matr = md_ssa._traj_tensor[:, :, 1]
-    pass
 
 
 def test_multiD_SAA():
     """test multiD SSA on 2 simple signals
     """
     # create 2 signals
-    x = np.linspace(0, 4 * np.pi, 100)
-    sig_1 = x + np.sin(x)
-
-    y = np.linspace(0, 4 * np.pi, 100)
-    sig_2 = np.exp(y) + np.cos(y)
+    t = np.linspace(0, 4 * np.pi, 100)
+    sig_1 = 2 * t.copy() + np.cos(t.copy()) * (-1)
+    sig_2 = -1 * t.copy() + np.cos(t.copy()) * 1
+    init_sig = [sig_1, sig_2]
 
     # create trajectory tensors out of it using method of "multiD_SSA_decom"
     L = 50
-    ssa_decomp = multiD_SSA_decomp([sig_1, sig_2], L)
-    ssa_decomp._build_traj_tensor()
-    traj_tensor = ssa_decomp._traj_tensor
+    cpd_rank = 10
+    ssa_decomp = multiD_SSA_decomp([sig_1, sig_2], L, cpd_rank)
 
-    # create class instance
-    decomposer = Traj_Tensor_Decomp(traj_tensor)
-    # apply CPD with some rank
-    cpd_rank = 4
-    decomposer._CPD_decomp(cpd_rank)
+    # perform CPD decomposition
+    ssa_decomp.decompose()
 
-    # vizualize weights
+    # now vectors c[i][j], i \in 1,...,r have meaning of singular values
+    # let's picture norms of this vectors
+    c_norms = linalg.norm(ssa_decomp.factors[2], axis=0)
+    c_norms_ordered = list(zip(range(len(c_norms)), c_norms))
+    c_norms_ordered.sort(key=lambda x: x[1], reverse=True)
+    c_norms = [el[1] for el in c_norms_ordered]
+    norms_order = [el[0] for el in c_norms_ordered]
     fig, ax = plt.subplots()
-    ax.plot([decomposer._weights[ind] for ind in decomposer._weights_order], marker='.')
+    ax.plot(c_norms, marker='.')
     ax.grid(True)
+    ax.set_title('Norms of c vectors')
     #fig.show()
     
     # group components somehow
-    groups = [(j, ) for j in range(4)]
-    decomposer._grouping_components(groups)
-    # hankelize groups
-    decomposer._hankelize_factors()
+    groups = [(0, ), (i for i in range(1, 10))]
+    ssa_decomp.group_components(groups)
+    # extract signals
+    ssa_decomp.extract_signals()
 
+    # vizualize components. Rows = 1d signal coordinate-wise, Columns = extracted component
+    fig, ax = plt.subplots(nrows=2, ncols=len(groups), figsize=(10, 10))
+    for row in range(2):
+        for col in range(len(groups)):
+            ax[row][col].plot(t, ssa_decomp.component_signals[col][row])
+            ax[row][col].grid(True)
+            ax[row][col].set_title(f"Signal #{row + 1}, component #{col + 1}")
     
-    # vizualize initial and restored signals
-    restored_signals = []
-    for sig_num in range(2):
-        cur_traj_matr = np.zeros((50, 51))
-        # for current signal sum all component's trajectory matrices
-        for factor in decomposer.factors:
-            cur_traj_matr += factor[:, :, sig_num]
-        cur_signal = ssa_decomp._extract_ts(cur_traj_matr)
-        restored_signals.append(cur_signal)
+    #fig.show()
 
-    fig, ax = plt.subplots(1, 2, figsize=(16, 7))
-    ax[0].plot(x, x + np.sin(x), label='initial', linestyle='--')
-    ax[0].plot(x, restored_signals[0], label='restored')
-    ax[0].legend()
-    ax[0].grid(True)
-    ax[0].set_title('Signal 1')
+    # visualize intial and restored components
+    fig, ax = plt.subplots(nrows=2)
+    for row in range(2):
+        cur_restored_sig = np.zeros(t.size)
+        for col in range(len(groups)):
+            cur_restored_sig += ssa_decomp.component_signals[col][row]
 
-    ax[1].plot(y, np.exp(y) + np.cos(y), label='initial', linestyle='--')
-    ax[1].plot(y, restored_signals[1], label='restored')
-    ax[1].legend()
-    ax[1].grid(True)
-    ax[1].set_title('Signal 2')
+        ax[row].plot(t, cur_restored_sig, label='restored')
+        ax[row].plot(t, init_sig[row], label='intial', linestyle='dashed')
+        ax[row].legend()
+        ax[row].grid(True)
+        ax[row].set_title(f"Signal #{row + 1}")
 
     fig.show()
+    pass
     # we can see rather good results
 

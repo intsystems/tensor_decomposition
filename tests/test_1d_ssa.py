@@ -41,27 +41,23 @@ def test_ssa_method():
     fig, ax = plt.subplots()
     ax.plot(x, sig)
     ax.grid(True)
-    fig.show()
+    #fig.show()
 
     # call SSA with L = 50
     L = 50
     decomp = SSA_decomp(sig, L)
 
-    # build traj. matrix
-    decomp._build_traj_matrix()
-    # making svd, making skeletones
-    decomp._svd_decomp()
+    # build traj. matrix and make svd
+    decomp.decompose()
     # visualizing singualr values
     fig, ax = plt.subplots()
-    ax.plot(decomp._weights, marker='.')
+    ax.plot(decomp.weights, marker='.')
     ax.grid(True)
     #fig.show()
     # from plot we can differentiate components: (0) and (1, 2, 3). Now group them
-    decomp._group_components([(0, ), (1, 2, 3)])
-    # hankelize components
-    decomp._hankelize_components()
-    # extract signals from traj. matrix
-    decomp._extract_signals()
+    decomp.group_components([(0, ), (1, 2, 3)])
+    # now extract signals from traj. matrix
+    decomp.extract_signals()
 
     # vizualizing components
     fig, ax = plt.subplots()
@@ -75,10 +71,11 @@ def test_ssa_method():
     # comparing intial and restored signal
     fig, ax = plt.subplots()
     ax.plot(x, x + np.sin(x), label='initial')
-    ax.plot(x, sum(decomp.component_signals), label='restored')
+    ax.plot(x, sum(decomp.component_signals), label='restored', alpha=0.6)
     ax.grid(True)
     ax.legend()
     fig.show()
 
+    pass
     # perfect decomposition!
 
