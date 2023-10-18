@@ -35,7 +35,8 @@ class SSA_decomp(Basic_SSA):
         # constructing component-signals
         for group in self.grouping:
             # constructing trajectory matrix
-            cur_traj_matr = np.zeros(shape=(self.left_factors[0].shape[0], self.right_factors[0].shape[0]), dtype=np.float32)
+            cur_traj_matr = np.zeros(shape=(self.left_factors.transpose()[0].shape[0], self.right_factors[0].shape[0]),
+                                      dtype=np.float32)
 
             # summing skeletones
             for ind in group:
